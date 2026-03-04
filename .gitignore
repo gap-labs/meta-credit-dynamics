@@ -1,4 +1,6 @@
 .venv/
+.venv-1/
+.jupyter/
 economy/capitalmarket/__pycache__/__init__.cpython-314.pyc
 # Editor / OS noise
 .DS_Store
@@ -8,10 +10,5 @@ economy/capitalmarket/__pycache__/__init__.cpython-314.pyc
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Experiment artifacts (public repo)
-logs/
-plots/
-notebooks/
-sandbox/
 docs/internal/
+tmp/

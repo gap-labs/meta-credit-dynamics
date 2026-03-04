@@ -7,3 +7,5 @@ torch==2.9.1
 # Notebook support
 jupyterlab
 ipykernel
+pandas>=2.2
+matplotlib>=3.8

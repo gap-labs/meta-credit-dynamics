@@ -6,6 +6,10 @@ import numpy as np
 import torch
 
 
+DEFAULT_MAX_CLAIMS_PER_PROCESS = 8
+_ALLOWED_FLOAT_DTYPES = {torch.float32, torch.float64}
+
+
 @dataclass(frozen=True)
 class CudaState:
     """Passive CUDA representation (tensors + structural metadata)."""
@@ -16,9 +20,15 @@ class CudaState:
 
 @dataclass(frozen=True)
 class DeviceState:
-    """CPU/GPU tensor state (batch-first)."""
+    """CPU/GPU tensor state contract for Phase H (process axis = dimension 0)."""
+
+    device: torch.device
+    max_claims_per_process: int
+    claim_slot_index: torch.Tensor
 
     weights: torch.Tensor
+
+    liquidity: torch.Tensor
     wealth: torch.Tensor
     mean: torch.Tensor
     var: torch.Tensor
@@ -27,46 +37,375 @@ class DeviceState:
     peak_cum_pi: torch.Tensor
     rebirth_threshold: torch.Tensor
 
+    claim_amount: torch.Tensor
+    claim_interest: torch.Tensor
+    claim_target: torch.Tensor
+    claim_maturity_tau: torch.Tensor
+    claim_active_mask: torch.Tensor
+    claim_generation_id: torch.Tensor | None = None
+    claim_parent_id: torch.Tensor | None = None
+    claim_count: torch.Tensor | None = None
+
+    due_mask: torch.Tensor | None = None
+    due_amount: torch.Tensor | None = None
+    returns_tensor: torch.Tensor | None = None
+
+    dead_mask: torch.Tensor | None = None
+    generation_id: torch.Tensor | None = None
+
+    burndown_pool: torch.Tensor | None = None
+    rebirth_budget: torch.Tensor | None = None
+    rebirth_buffer: torch.Tensor | None = None
+    inhabitants_staging: torch.Tensor | None = None
+
     def to(self, device: str | torch.device) -> "DeviceState":
+        target_device = torch.device(device) if not isinstance(device, torch.device) else device
+
+        def _to_optional(t: torch.Tensor | None):
+            return None if t is None else t.to(target_device)
+
         return DeviceState(
-            weights=self.weights.to(device),
-            wealth=self.wealth.to(device),
-            mean=self.mean.to(device),
-            var=self.var.to(device),
-            drawdown=self.drawdown.to(device),
-            cum_pi=self.cum_pi.to(device),
-            peak_cum_pi=self.peak_cum_pi.to(device),
-            rebirth_threshold=self.rebirth_threshold.to(device),
+            device=target_device,
+            max_claims_per_process=int(self.max_claims_per_process),
+            claim_slot_index=self.claim_slot_index.to(target_device),
+            weights=self.weights.to(target_device),
+            liquidity=self.liquidity.to(target_device),
+            wealth=self.wealth.to(target_device),
+            mean=self.mean.to(target_device),
+            var=self.var.to(target_device),
+            drawdown=self.drawdown.to(target_device),
+            cum_pi=self.cum_pi.to(target_device),
+            peak_cum_pi=self.peak_cum_pi.to(target_device),
+            rebirth_threshold=self.rebirth_threshold.to(target_device),
+            claim_amount=self.claim_amount.to(target_device),
+            claim_interest=self.claim_interest.to(target_device),
+            claim_target=self.claim_target.to(target_device),
+            claim_maturity_tau=self.claim_maturity_tau.to(target_device),
+            claim_active_mask=self.claim_active_mask.to(target_device),
+            claim_generation_id=_to_optional(self.claim_generation_id),
+            claim_parent_id=_to_optional(self.claim_parent_id),
+            claim_count=_to_optional(self.claim_count),
+            due_mask=_to_optional(self.due_mask),
+            due_amount=_to_optional(self.due_amount),
+            returns_tensor=_to_optional(self.returns_tensor),
+            dead_mask=_to_optional(self.dead_mask),
+            generation_id=_to_optional(self.generation_id),
+            burndown_pool=_to_optional(self.burndown_pool),
+            rebirth_budget=_to_optional(self.rebirth_budget),
+            rebirth_buffer=_to_optional(self.rebirth_buffer),
+            inhabitants_staging=_to_optional(self.inhabitants_staging),
         )
 
     def to_cpu(self) -> "DeviceState":
         return self.to("cpu")
 
+    @property
+    def claim_ids(self) -> torch.Tensor:
+        return self.claim_target
 
-def to_device_state(selector, *, device: str | torch.device = "cpu", dtype: torch.dtype | None = None) -> DeviceState:
+    @property
+    def parent_claim_ids(self) -> torch.Tensor | None:
+        return self.claim_parent_id
+
+    @property
+    def generation_ids(self) -> torch.Tensor | None:
+        if self.generation_id is None:
+            return None
+        return self.generation_id.unsqueeze(-1)
+
+    @property
+    def dead_flags(self) -> torch.Tensor | None:
+        if self.dead_mask is None:
+            return None
+        return self.dead_mask.to(dtype=self.wealth.dtype).unsqueeze(-1)
+
+    def _named_tensors(self) -> list[tuple[str, torch.Tensor]]:
+        items: list[tuple[str, torch.Tensor]] = [
+            ("claim_slot_index", self.claim_slot_index),
+            ("weights", self.weights),
+            ("liquidity", self.liquidity),
+            ("wealth", self.wealth),
+            ("mean", self.mean),
+            ("var", self.var),
+            ("drawdown", self.drawdown),
+            ("cum_pi", self.cum_pi),
+            ("peak_cum_pi", self.peak_cum_pi),
+            ("rebirth_threshold", self.rebirth_threshold),
+            ("claim_amount", self.claim_amount),
+            ("claim_interest", self.claim_interest),
+            ("claim_target", self.claim_target),
+            ("claim_maturity_tau", self.claim_maturity_tau),
+            ("claim_active_mask", self.claim_active_mask),
+        ]
+        optional = [
+            ("claim_generation_id", self.claim_generation_id),
+            ("claim_parent_id", self.claim_parent_id),
+            ("claim_count", self.claim_count),
+            ("due_mask", self.due_mask),
+            ("due_amount", self.due_amount),
+            ("returns_tensor", self.returns_tensor),
+            ("dead_mask", self.dead_mask),
+            ("generation_id", self.generation_id),
+            ("burndown_pool", self.burndown_pool),
+            ("rebirth_budget", self.rebirth_budget),
+            ("rebirth_buffer", self.rebirth_buffer),
+            ("inhabitants_staging", self.inhabitants_staging),
+        ]
+        for name, tensor in optional:
+            if tensor is not None:
+                items.append((name, tensor))
+        return items
+
+    def validate_shapes(self) -> None:
+        n = int(self.liquidity.shape[0]) if self.liquidity.ndim == 1 else -1
+        if n <= 0:
+            raise ValueError("liquidity must have shape [N] with N > 0")
+
+        if self.max_claims_per_process <= 0:
+            raise ValueError("max_claims_per_process must be positive")
+
+        c = int(self.max_claims_per_process)
+
+        vector_fields = {
+            "liquidity": self.liquidity,
+            "wealth": self.wealth,
+            "mean": self.mean,
+            "var": self.var,
+            "drawdown": self.drawdown,
+            "cum_pi": self.cum_pi,
+            "peak_cum_pi": self.peak_cum_pi,
+            "rebirth_threshold": self.rebirth_threshold,
+        }
+        for name, tensor in vector_fields.items():
+            if tensor.ndim != 1 or tensor.shape[0] != n:
+                raise ValueError(f"{name} must have shape [N], got {tuple(tensor.shape)}")
+
+        if self.weights.ndim != 2 or self.weights.shape[0] != n:
+            raise ValueError(f"weights must have shape [N, K], got {tuple(self.weights.shape)}")
+
+        if self.claim_slot_index.ndim != 1 or self.claim_slot_index.shape[0] != c:
+            raise ValueError(f"claim_slot_index must have shape [C], got {tuple(self.claim_slot_index.shape)}")
+
+        claim_matrix_fields = {
+            "claim_amount": self.claim_amount,
+            "claim_interest": self.claim_interest,
+            "claim_target": self.claim_target,
+            "claim_maturity_tau": self.claim_maturity_tau,
+            "claim_active_mask": self.claim_active_mask,
+        }
+        for name, tensor in claim_matrix_fields.items():
+            if tensor.ndim != 2 or tensor.shape != (n, c):
+                raise ValueError(f"{name} must have shape [N, C], got {tuple(tensor.shape)}")
+
+        optional_matrix_fields = {
+            "claim_generation_id": self.claim_generation_id,
+            "claim_parent_id": self.claim_parent_id,
+            "due_mask": self.due_mask,
+            "due_amount": self.due_amount,
+            "returns_tensor": self.returns_tensor,
+        }
+        for name, tensor in optional_matrix_fields.items():
+            if tensor is not None and (tensor.ndim != 2 or tensor.shape != (n, c)):
+                raise ValueError(f"{name} must have shape [N, C], got {tuple(tensor.shape)}")
+
+        optional_vector_fields = {
+            "claim_count": self.claim_count,
+            "dead_mask": self.dead_mask,
+            "generation_id": self.generation_id,
+            "burndown_pool": self.burndown_pool,
+            "rebirth_budget": self.rebirth_budget,
+        }
+        for name, tensor in optional_vector_fields.items():
+            if tensor is not None and (tensor.ndim != 1 or tensor.shape[0] != n):
+                raise ValueError(f"{name} must have shape [N], got {tuple(tensor.shape)}")
+
+    def validate_dtypes(self) -> None:
+        float_fields = {
+            "weights": self.weights,
+            "liquidity": self.liquidity,
+            "wealth": self.wealth,
+            "mean": self.mean,
+            "var": self.var,
+            "drawdown": self.drawdown,
+            "cum_pi": self.cum_pi,
+            "peak_cum_pi": self.peak_cum_pi,
+            "rebirth_threshold": self.rebirth_threshold,
+            "claim_amount": self.claim_amount,
+            "claim_interest": self.claim_interest,
+        }
+        if self.due_amount is not None:
+            float_fields["due_amount"] = self.due_amount
+        if self.returns_tensor is not None:
+            float_fields["returns_tensor"] = self.returns_tensor
+        if self.burndown_pool is not None:
+            float_fields["burndown_pool"] = self.burndown_pool
+        if self.rebirth_budget is not None:
+            float_fields["rebirth_budget"] = self.rebirth_budget
+
+        for name, tensor in float_fields.items():
+            if tensor.dtype not in _ALLOWED_FLOAT_DTYPES:
+                raise ValueError(f"{name} must be float32 or float64, got {tensor.dtype}")
+
+        int_fields = {
+            "claim_slot_index": self.claim_slot_index,
+            "claim_target": self.claim_target,
+                "claim_maturity_tau": self.claim_maturity_tau,
+        }
+        if self.claim_generation_id is not None:
+            int_fields["claim_generation_id"] = self.claim_generation_id
+        if self.claim_parent_id is not None:
+            int_fields["claim_parent_id"] = self.claim_parent_id
+        if self.claim_count is not None:
+            int_fields["claim_count"] = self.claim_count
+        if self.generation_id is not None:
+            int_fields["generation_id"] = self.generation_id
+
+        for name, tensor in int_fields.items():
+            if tensor.dtype != torch.int32:
+                raise ValueError(f"{name} must be int32, got {tensor.dtype}")
+
+        bool_fields = {
+            "claim_active_mask": self.claim_active_mask,
+        }
+        if self.due_mask is not None:
+            bool_fields["due_mask"] = self.due_mask
+        if self.dead_mask is not None:
+            bool_fields["dead_mask"] = self.dead_mask
+
+        for name, tensor in bool_fields.items():
+            if tensor.dtype != torch.bool:
+                raise ValueError(f"{name} must be bool, got {tensor.dtype}")
+
+    def validate_device(self, *, expected_backend: str | None = None) -> None:
+        expected = self.device if isinstance(self.device, torch.device) else torch.device(self.device)
+        for name, tensor in self._named_tensors():
+            same_type = tensor.device.type == expected.type
+            same_index = expected.index is None or tensor.device.index == expected.index
+            if not (same_type and same_index):
+                raise ValueError(f"{name} is on {tensor.device}, expected {expected}")
+
+        if expected_backend is not None:
+            backend = str(expected_backend)
+            if backend == "cuda" and expected.type != "cuda":
+                raise ValueError(f"expected cuda backend but state device is {expected}")
+            if backend == "cpu" and expected.type != "cpu":
+                raise ValueError(f"expected cpu backend but state device is {expected}")
+
+    def validate_determinism_ready(self) -> None:
+        self.validate_shapes()
+        self.validate_dtypes()
+
+        slot_expected = torch.arange(
+            int(self.max_claims_per_process),
+            dtype=torch.int32,
+            device=self.claim_slot_index.device,
+        )
+        if not torch.equal(self.claim_slot_index, slot_expected):
+            raise ValueError("claim_slot_index must be a stable ascending sequence [0..C-1]")
+
+        for name, tensor in self._named_tensors():
+            if tensor.requires_grad:
+                raise ValueError(f"{name} has requires_grad=True; state must be inference-only")
+            if tensor.is_sparse:
+                raise ValueError(f"{name} is sparse; dense tensors are required for deterministic slot layout")
+
+        if self.claim_count is not None:
+            if torch.any(self.claim_count < 0) or torch.any(self.claim_count > int(self.max_claims_per_process)):
+                raise ValueError("claim_count out of bounds")
+            c = int(self.max_claims_per_process)
+            idx = torch.arange(c, device=self.claim_count.device).unsqueeze(0).expand(self.claim_count.shape[0], c)
+            invalid_active = self.claim_active_mask & (idx >= self.claim_count.unsqueeze(1))
+            if bool(torch.any(invalid_active)):
+                raise ValueError("claim_active_mask violates stable prefix ordering implied by claim_count")
+
+
+def to_device_state(
+    selector,
+    *,
+    device: str | torch.device = "cpu",
+    dtype: torch.dtype | None = None,
+    max_claims_per_process: int = DEFAULT_MAX_CLAIMS_PER_PROCESS,
+) -> DeviceState:
     """CPU selector -> DeviceState with batch dimension B=1."""
     if selector.w is None:
         raise ValueError("selector.w must be initialized before to_device_state()")
 
+    target_device = torch.device(device) if not isinstance(device, torch.device) else device
+
     w_np = np.asarray(selector.w, dtype=float)
-    w_t = torch.as_tensor(w_np, device=device)
+    w_t = torch.as_tensor(w_np, device=target_device)
     base_dtype = dtype if dtype is not None else w_t.dtype
     w_t = w_t.to(dtype=base_dtype).unsqueeze(0)
 
-    def _scalar(val: float) -> torch.Tensor:
-        t = torch.as_tensor(np.array(val), device=device, dtype=base_dtype)
-        return t.reshape(1, 1)
+    def _vector(val: float) -> torch.Tensor:
+        t = torch.as_tensor(np.array(val), device=target_device, dtype=base_dtype)
+        return t.reshape(1)
 
-    return DeviceState(
+    generation_id = int(getattr(selector, "generation_id", 0))
+    dead_flag = bool(getattr(selector, "dead", False))
+    c = int(max_claims_per_process)
+    if c <= 0:
+        raise ValueError("max_claims_per_process must be positive")
+
+    claim_amount = torch.zeros((1, c), dtype=base_dtype, device=target_device)
+    claim_interest = torch.zeros((1, c), dtype=base_dtype, device=target_device)
+    claim_target = torch.full((1, c), -1, dtype=torch.int32, device=target_device)
+    claim_maturity_tau = torch.full((1, c), -1, dtype=torch.int32, device=target_device)
+    claim_active_mask = torch.zeros((1, c), dtype=torch.bool, device=target_device)
+    claim_generation_id = torch.full((1, c), generation_id, dtype=torch.int32, device=target_device)
+    claim_parent_id = torch.full((1, c), -1, dtype=torch.int32, device=target_device)
+    claim_count = torch.zeros((1,), dtype=torch.int32, device=target_device)
+
+    due_mask = torch.zeros((1, c), dtype=torch.bool, device=target_device)
+    due_amount = torch.zeros((1, c), dtype=base_dtype, device=target_device)
+    returns_tensor = torch.zeros((1, c), dtype=base_dtype, device=target_device)
+
+    dead_mask = torch.as_tensor([dead_flag], dtype=torch.bool, device=target_device)
+    generation = torch.as_tensor([generation_id], dtype=torch.int32, device=target_device)
+
+    burndown_pool = torch.zeros((1,), dtype=base_dtype, device=target_device)
+    rebirth_budget = torch.zeros((1,), dtype=base_dtype, device=target_device)
+    rebirth_buffer = torch.zeros((1, 4), dtype=base_dtype, device=target_device)
+    inhabitants_staging = torch.zeros((1, 4), dtype=base_dtype, device=target_device)
+
+    state = DeviceState(
+        device=target_device,
+        max_claims_per_process=c,
+        claim_slot_index=torch.arange(c, dtype=torch.int32, device=target_device),
         weights=w_t,
-        wealth=_scalar(float(selector.wealth)),
-        mean=_scalar(float(selector.stats.mu)),
-        var=_scalar(float(selector.stats.var)),
-        drawdown=_scalar(float(selector.stats.dd)),
-        cum_pi=_scalar(float(selector.stats.cum_pi)),
-        peak_cum_pi=_scalar(float(selector.stats.peak_cum_pi)),
-        rebirth_threshold=_scalar(float(selector.rebirth_threshold)),
+        liquidity=_vector(float(selector.wealth)),
+        wealth=_vector(float(selector.wealth)),
+        mean=_vector(float(selector.stats.mu)),
+        var=_vector(float(selector.stats.var)),
+        drawdown=_vector(float(selector.stats.dd)),
+        cum_pi=_vector(float(selector.stats.cum_pi)),
+        peak_cum_pi=_vector(float(selector.stats.peak_cum_pi)),
+        rebirth_threshold=_vector(float(selector.rebirth_threshold)),
+        claim_amount=claim_amount,
+        claim_interest=claim_interest,
+        claim_target=claim_target,
+        claim_maturity_tau=claim_maturity_tau,
+        claim_active_mask=claim_active_mask,
+        claim_generation_id=claim_generation_id,
+        claim_parent_id=claim_parent_id,
+        claim_count=claim_count,
+        due_mask=due_mask,
+        due_amount=due_amount,
+        returns_tensor=returns_tensor,
+        dead_mask=dead_mask,
+        generation_id=generation,
+        burndown_pool=burndown_pool,
+        rebirth_budget=rebirth_budget,
+        rebirth_buffer=rebirth_buffer,
+        inhabitants_staging=inhabitants_staging,
     )
+
+    state.validate_shapes()
+    state.validate_dtypes()
+    state.validate_device(expected_backend=target_device.type)
+    state.validate_determinism_ready()
+
+    return state
 
 
 def canonical_state_dump(

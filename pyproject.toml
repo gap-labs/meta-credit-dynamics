@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capitalmarket-phaseg"
+version = "0.0.1"
+description = "Phase G research simulation baseline for CapitalSelector"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch==2.9.1",
+  "numpy>=1.26.4",
+  "pytest>=7.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["capitalmarket*", "capitalselector*"]
+namespaces = true
