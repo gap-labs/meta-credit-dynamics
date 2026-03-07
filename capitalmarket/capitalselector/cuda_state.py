@@ -5,6 +5,8 @@ from typing import Any, Dict
 import numpy as np
 import torch
 
+from .phase_i_state import DEFAULT_TERM_GAMMA, allocate_term_mu
+
 
 DEFAULT_MAX_CLAIMS_PER_PROCESS = 8
 _ALLOWED_FLOAT_DTYPES = {torch.float32, torch.float64}
@@ -27,6 +29,8 @@ class DeviceState:
     claim_slot_index: torch.Tensor
 
     weights: torch.Tensor
+    mu_term: torch.Tensor
+    rho: torch.Tensor
 
     liquidity: torch.Tensor
     wealth: torch.Tensor
@@ -69,6 +73,8 @@ class DeviceState:
             max_claims_per_process=int(self.max_claims_per_process),
             claim_slot_index=self.claim_slot_index.to(target_device),
             weights=self.weights.to(target_device),
+            mu_term=self.mu_term.to(target_device),
+            rho=self.rho.to(target_device),
             liquidity=self.liquidity.to(target_device),
             wealth=self.wealth.to(target_device),
             mean=self.mean.to(target_device),
@@ -123,6 +129,8 @@ class DeviceState:
         items: list[tuple[str, torch.Tensor]] = [
             ("claim_slot_index", self.claim_slot_index),
             ("weights", self.weights),
+            ("mu_term", self.mu_term),
+            ("rho", self.rho),
             ("liquidity", self.liquidity),
             ("wealth", self.wealth),
             ("mean", self.mean),
@@ -182,6 +190,15 @@ class DeviceState:
 
         if self.weights.ndim != 2 or self.weights.shape[0] != n:
             raise ValueError(f"weights must have shape [N, K], got {tuple(self.weights.shape)}")
+        k = int(self.weights.shape[1])
+
+        if self.mu_term.ndim != 3 or self.mu_term.shape[0] != n or self.mu_term.shape[1] != k:
+            raise ValueError(f"mu_term must have shape [N, K, H], got {tuple(self.mu_term.shape)}")
+        if int(self.mu_term.shape[2]) <= 0:
+            raise ValueError("mu_term horizon axis H must be > 0")
+
+        if self.rho.ndim != 2 or self.rho.shape != (n, k):
+            raise ValueError(f"rho must have shape [N, K], got {tuple(self.rho.shape)}")
 
         if self.claim_slot_index.ndim != 1 or self.claim_slot_index.shape[0] != c:
             raise ValueError(f"claim_slot_index must have shape [C], got {tuple(self.claim_slot_index.shape)}")
@@ -222,6 +239,8 @@ class DeviceState:
     def validate_dtypes(self) -> None:
         float_fields = {
             "weights": self.weights,
+            "mu_term": self.mu_term,
+            "rho": self.rho,
             "liquidity": self.liquidity,
             "wealth": self.wealth,
             "mean": self.mean,
@@ -330,12 +349,30 @@ def to_device_state(
     if selector.w is None:
         raise ValueError("selector.w must be initialized before to_device_state()")
 
+    if hasattr(selector, "ensure_channel_state"):
+        selector.ensure_channel_state(len(np.asarray(selector.w, dtype=float)))
+
     target_device = torch.device(device) if not isinstance(device, torch.device) else device
 
     w_np = np.asarray(selector.w, dtype=float)
     w_t = torch.as_tensor(w_np, device=target_device)
     base_dtype = dtype if dtype is not None else w_t.dtype
     w_t = w_t.to(dtype=base_dtype).unsqueeze(0)
+    k = int(w_np.shape[0])
+
+    gamma = np.asarray(getattr(selector, "gamma", DEFAULT_TERM_GAMMA), dtype=float)
+    horizon_count = int(gamma.shape[0]) if gamma.ndim == 1 and gamma.shape[0] > 0 else int(DEFAULT_TERM_GAMMA.shape[0])
+
+    mu_term_np = np.asarray(getattr(selector, "mu_term", allocate_term_mu(k, horizon_count)), dtype=float)
+    if mu_term_np.ndim != 2 or mu_term_np.shape[0] != k or mu_term_np.shape[1] != horizon_count:
+        mu_term_np = allocate_term_mu(k, horizon_count)
+
+    rho_np = np.asarray(getattr(selector, "rho", np.zeros(k, dtype=float)), dtype=float)
+    if rho_np.ndim != 1 or rho_np.shape[0] != k:
+        rho_np = np.zeros(k, dtype=float)
+
+    mu_term_t = torch.as_tensor(mu_term_np, device=target_device, dtype=base_dtype).unsqueeze(0)
+    rho_t = torch.as_tensor(rho_np, device=target_device, dtype=base_dtype).unsqueeze(0)
 
     def _vector(val: float) -> torch.Tensor:
         t = torch.as_tensor(np.array(val), device=target_device, dtype=base_dtype)
@@ -373,6 +410,8 @@ def to_device_state(
         max_claims_per_process=c,
         claim_slot_index=torch.arange(c, dtype=torch.int32, device=target_device),
         weights=w_t,
+        mu_term=mu_term_t,
+        rho=rho_t,
         liquidity=_vector(float(selector.wealth)),
         wealth=_vector(float(selector.wealth)),
         mean=_vector(float(selector.stats.mu)),

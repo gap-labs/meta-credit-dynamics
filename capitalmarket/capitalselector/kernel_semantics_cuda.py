@@ -83,6 +83,18 @@ def step_at_tau_cuda(
 
     c_total = _as_vector(input_events.get("c_total", 0.0), n=n, device=device, dtype=dtype)
     returns_total = _as_vector(input_events.get("returns_total", 0.0), n=n, device=device, dtype=dtype)
+    k = int(state.weights.shape[1])
+
+    returns_vec_in = input_events.get("returns_vec")
+    if isinstance(returns_vec_in, torch.Tensor):
+        returns_vec = returns_vec_in.to(device=device, dtype=dtype)
+    else:
+        returns_vec = torch.zeros((n, k), device=device, dtype=dtype)
+
+    if returns_vec.ndim == 1 and returns_vec.shape[0] == k:
+        returns_vec = returns_vec.unsqueeze(0).expand(n, k)
+    if returns_vec.ndim != 2 or returns_vec.shape != (n, k):
+        raise ValueError(f"returns_vec must have shape [N, K], got {tuple(returns_vec.shape)}")
 
     lambda_cash_share_in = input_events.get("lambda_cash_share", 0.5)
     if isinstance(lambda_cash_share_in, torch.Tensor):
@@ -101,6 +113,18 @@ def step_at_tau_cuda(
         stats_beta_t = stats_beta_in.to(device=device, dtype=dtype).reshape(())
     else:
         stats_beta_t = torch.scalar_tensor(float(stats_beta_in), device=device, dtype=dtype)
+
+    phase_i_beta_in = input_events.get("phase_i_beta", stats_beta_t)
+    if isinstance(phase_i_beta_in, torch.Tensor):
+        phase_i_beta_t = phase_i_beta_in.to(device=device, dtype=dtype).reshape(())
+    else:
+        phase_i_beta_t = torch.scalar_tensor(float(phase_i_beta_in), device=device, dtype=dtype)
+
+    phase_i_beta_r_in = input_events.get("phase_i_beta_r", stats_beta_t)
+    if isinstance(phase_i_beta_r_in, torch.Tensor):
+        phase_i_beta_r_t = phase_i_beta_r_in.to(device=device, dtype=dtype).reshape(())
+    else:
+        phase_i_beta_r_t = torch.scalar_tensor(float(phase_i_beta_r_in), device=device, dtype=dtype)
 
     maturity_offset_in = input_events.get("future_maturity_offset", 1)
     if isinstance(maturity_offset_in, torch.Tensor):
@@ -220,6 +244,44 @@ def step_at_tau_cuda(
     drawdown_new = peak_cum_pi_new - cum_pi_new
     cuda_ops_count += 1
 
+    # Phase-I deterministic updates on device state.
+    mu_term_new = state.mu_term.clone()
+    rho_new = state.rho.clone()
+
+    if k > 0:
+        batch_idx = torch.arange(n, device=device, dtype=torch.int64)
+        dominant_channel = torch.argmax(torch.abs(returns_vec), dim=1)
+
+        # RETURN events (horizon h0): one EWMA update per channel with positive return.
+        positive_returns = torch.clamp(returns_vec, min=0.0)
+        mu_h0 = mu_term_new[:, :, 0]
+        mu_h0_updated = (1.0 - phase_i_beta_t) * mu_h0 + phase_i_beta_t * positive_returns
+        mu_h0 = torch.where(positive_returns > 0.0, mu_h0_updated, mu_h0)
+
+        # DUE_CASH events (horizon h0): aggregated legacy cash signal on deterministic fallback channel.
+        has_legacy_due = c_total > 0.0
+        if bool(torch.any(has_legacy_due)):
+            old_due = mu_h0[batch_idx, dominant_channel]
+            due_pi = -c_total
+            new_due = (1.0 - phase_i_beta_t) * old_due + phase_i_beta_t * due_pi
+            mu_h0[batch_idx, dominant_channel] = torch.where(has_legacy_due, new_due, old_due)
+
+        # COST events (horizon h0): aggregated claim due signal on deterministic fallback channel.
+        has_claim_due = claim_due_total > 0.0
+        if bool(torch.any(has_claim_due)):
+            old_cost = mu_h0[batch_idx, dominant_channel]
+            cost_pi = -claim_due_total
+            new_cost = (1.0 - phase_i_beta_t) * old_cost + phase_i_beta_t * cost_pi
+            mu_h0[batch_idx, dominant_channel] = torch.where(has_claim_due, new_cost, old_cost)
+
+        mu_term_new[:, :, 0] = mu_h0
+
+        # Risk impulses from ROLLOVER (claim remainder) and FAIL (settlement_failed).
+        risk_impulse = ((claim_remainder > 0.0) | settlement_failed).to(dtype=dtype)
+        old_rho = rho_new[batch_idx, dominant_channel]
+        new_rho = (1.0 - phase_i_beta_r_t) * old_rho + phase_i_beta_r_t * risk_impulse
+        rho_new[batch_idx, dominant_channel] = new_rho
+
     state_next = DeviceState(
         **{
             **state.__dict__,
@@ -231,6 +293,8 @@ def step_at_tau_cuda(
             "cum_pi": torch.where(alive_mask, cum_pi_new, state.cum_pi),
             "peak_cum_pi": torch.where(alive_mask, peak_cum_pi_new, state.peak_cum_pi),
             "drawdown": torch.where(alive_mask, drawdown_new, state.drawdown),
+            "mu_term": mu_term_new,
+            "rho": rho_new,
             "dead_mask": is_dead,
             "due_mask": due_mask,
             "due_amount": due_amount,

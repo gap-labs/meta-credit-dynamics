@@ -93,13 +93,18 @@ class CudaCore:
                 "stats_beta": torch.zeros((), device=self._device, dtype=state.wealth.dtype),
                 "accept_by_default": torch.zeros((), device=self._device, dtype=torch.bool),
                 "future_maturity_offset": torch.zeros((), device=self._device, dtype=torch.int32),
+                "phase_i_beta": torch.zeros((), device=self._device, dtype=state.wealth.dtype),
+                "phase_i_beta_r": torch.zeros((), device=self._device, dtype=state.wealth.dtype),
             }
 
         r_arr = np.asarray(r_vec, dtype=float)
-        if selector.w is None or len(selector.w) != len(r_arr):
+        if hasattr(selector, "ensure_channel_state"):
+            selector.ensure_channel_state(len(r_arr))
+        elif selector.w is None or len(selector.w) != len(r_arr):
             selector.w = np.ones(len(r_arr), dtype=float) / max(1, len(r_arr))
             selector.K = len(r_arr)
 
+        state_prev = state
         state = self._ingest_new_claims(selector=selector, state=state)
         state.validate_shapes()
         state.validate_dtypes()
@@ -109,7 +114,9 @@ class CudaCore:
         scalar_cache = self._scalar_cache_by_selector[selector_id]
         returns_total = scalar_cache["returns_total"].fill_(float(np.asarray(r_arr, dtype=float).sum()))
         c_total_tensor = scalar_cache["c_total"].fill_(float(c_total))
+        returns_vec_tensor = torch.as_tensor(np.asarray(r_arr, dtype=float), device=self._device, dtype=state.wealth.dtype).unsqueeze(0)
         self._metrics["h2d_bytes"] = int(self._metrics["h2d_bytes"]) + int((returns_total.element_size() + c_total_tensor.element_size()))
+        self._metrics["h2d_bytes"] = int(self._metrics["h2d_bytes"]) + int(returns_vec_tensor.numel() * returns_vec_tensor.element_size())
 
         settlement_cfg = dict(getattr(selector, "settlement_config", {}) or {})
         lambda_cash_share = float(settlement_cfg.get("lambda_cash_share", getattr(selector, "lambda_cash_share", 0.5)))
@@ -118,16 +125,21 @@ class CudaCore:
         accept_by_default_t = scalar_cache["accept_by_default"].fill_(accept_by_default)
         stats_beta_t = scalar_cache["stats_beta"].fill_(float(getattr(selector.stats, "beta", 0.0)))
         future_maturity_offset_t = scalar_cache["future_maturity_offset"].fill_(int(settlement_cfg.get("future_maturity_offset", 1)))
+        phase_i_beta_t = scalar_cache["phase_i_beta"].fill_(float(getattr(selector, "beta_term", getattr(selector.stats, "beta", 0.0))))
+        phase_i_beta_r_t = scalar_cache["phase_i_beta_r"].fill_(float(getattr(selector, "beta_r", getattr(selector.stats, "beta", 0.0))))
 
         out = batch_core_step(
             state,
             input_events={
                 "returns_total": returns_total,
+                "returns_vec": returns_vec_tensor,
                 "c_total": c_total_tensor,
                 "freeze": bool(freeze),
                 "lambda_cash_share": lambda_cash_share_t,
                 "accept_by_default": accept_by_default_t,
                 "stats_beta": stats_beta_t,
+                "phase_i_beta": phase_i_beta_t,
+                "phase_i_beta_r": phase_i_beta_r_t,
                 "future_maturity_offset": future_maturity_offset_t,
             },
             tau=int(tau),
@@ -137,6 +149,7 @@ class CudaCore:
 
         self._publish_selector_runtime(
             selector=selector,
+            state_prev=state_prev,
             state=state_next,
             out=out,
             r_vec=r_arr,
@@ -255,6 +268,7 @@ class CudaCore:
         self,
         *,
         selector: Any,
+        state_prev: DeviceState,
         state: DeviceState,
         out: dict[str, Any],
         r_vec: np.ndarray,
@@ -265,6 +279,7 @@ class CudaCore:
         if self._publish_policy == "minimal":
             self._publish_selector_runtime_minimal(
                 selector=selector,
+                state_prev=state_prev,
                 state=state,
                 out=out,
                 r_vec=r_vec,
@@ -276,6 +291,7 @@ class CudaCore:
 
         self._publish_selector_runtime_full(
             selector=selector,
+            state_prev=state_prev,
             state=state,
             out=out,
             r_vec=r_vec,
@@ -288,6 +304,7 @@ class CudaCore:
         self,
         *,
         selector: Any,
+        state_prev: DeviceState,
         state: DeviceState,
         out: dict[str, Any],
         r_vec: np.ndarray,
@@ -325,6 +342,9 @@ class CudaCore:
         if freeze:
             return
 
+        if str(getattr(selector, "selector_policy", "myopic")) in {"term_aware", "term_risk"}:
+            self._sync_selector_phase_i_state(selector=selector, state=state)
+
         offer_mask = bool(scalar_sync[2])
         if offer_mask and not bool(selector.dead):
             w_host = state.weights[0].detach().cpu().numpy().astype(float, copy=True)
@@ -335,7 +355,7 @@ class CudaCore:
             )
 
             _, _, _, pi_vec = selector.compute_pi(r_vec, float(c_total))
-            adv = np.asarray(pi_vec, dtype=float) - float(selector.stats.mu)
+            adv = selector.compute_advantage(np.asarray(pi_vec, dtype=float))
             selector.w = selector.reweight_fn(np.asarray(selector.w, dtype=float), adv)
             selector._enforce_invariants()
             state.weights[0] = torch.as_tensor(selector.w, device=state.device, dtype=state.weights.dtype)
@@ -354,6 +374,7 @@ class CudaCore:
         self,
         *,
         selector: Any,
+        state_prev: DeviceState,
         state: DeviceState,
         out: dict[str, Any],
         r_vec: np.ndarray,
@@ -403,10 +424,13 @@ class CudaCore:
         if freeze:
             return
 
+        if str(getattr(selector, "selector_policy", "myopic")) in {"term_aware", "term_risk"}:
+            self._sync_selector_phase_i_state(selector=selector, state=state)
+
         offer_mask = bool(out["offer_publication_mask"][0].item())
         if offer_mask and not bool(selector.dead):
             _, _, _, pi_vec = selector.compute_pi(np.asarray(r_vec, dtype=float), float(c_total))
-            adv = np.asarray(pi_vec, dtype=float) - float(selector.stats.mu)
+            adv = selector.compute_advantage(np.asarray(pi_vec, dtype=float))
             selector.w = selector.reweight_fn(np.asarray(selector.w, dtype=float), adv)
             selector._enforce_invariants()
             state.weights[0] = torch.as_tensor(selector.w, device=state.device, dtype=state.weights.dtype)
@@ -418,3 +442,16 @@ class CudaCore:
                 "claim_count": int(state.claim_count[0].item()) if state.claim_count is not None else 0,
                 "active_due": int(state.due_mask.sum().item()) if state.due_mask is not None else 0,
             }
+
+    def _sync_selector_phase_i_state(self, *, selector: Any, state: DeviceState) -> None:
+        mu_host = state.mu_term[0].detach().cpu().numpy().astype(float, copy=True)
+        rho_host = state.rho[0].detach().cpu().numpy().astype(float, copy=True)
+
+        selector.mu_term = mu_host
+        selector.rho = rho_host
+        selector.horizon_count = int(mu_host.shape[1]) if mu_host.ndim == 2 else int(getattr(selector, "horizon_count", 0))
+
+        self._metrics["d2h_bytes"] = int(self._metrics["d2h_bytes"]) + int(
+            state.mu_term[0].numel() * state.mu_term[0].element_size()
+            + state.rho[0].numel() * state.rho[0].element_size()
+        )

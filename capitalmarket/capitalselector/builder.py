@@ -4,6 +4,8 @@ from .stats import EWMAStats
 from .rebirth import RebirthPolicy
 from .reweight import exp_reweight
 from .config import ProfileAConfig, ProfileBConfig
+from .phase_i_state import DEFAULT_LAMBDA_RISK, validate_lambda_risk
+from .selector_policy import DEFAULT_SELECTOR_POLICY, SelectorPolicy, validate_selector_policy
 
 
 class CapitalSelectorBuilder:
@@ -15,6 +17,8 @@ class CapitalSelectorBuilder:
         self._kind = "entrepreneur"
         self._rebirth_policy = None
         self._channels: list[Channel] = []
+        self._selector_policy: SelectorPolicy = DEFAULT_SELECTOR_POLICY
+        self._lambda_risk: float = DEFAULT_LAMBDA_RISK
         self._resolved_config: dict[str, object] = {}
 
     @classmethod
@@ -52,6 +56,12 @@ class CapitalSelectorBuilder:
     def with_rebirth_policy(self, policy: RebirthPolicy):
         self._rebirth_policy = policy; return self
 
+    def with_selector_policy(self, selector_policy: SelectorPolicy | str):
+        self._selector_policy = validate_selector_policy(str(selector_policy)); return self
+
+    def with_lambda_risk(self, lambda_risk: float):
+        self._lambda_risk = validate_lambda_risk(lambda_risk); return self
+
     def with_channels(self, channels: list[Channel]):
         self._channels = channels; return self
 
@@ -77,4 +87,6 @@ class CapitalSelectorBuilder:
             kind=self._kind,
             rebirth_policy=self._rebirth_policy,
             channels=self._channels,
+            selector_policy=self._selector_policy,
+            lambda_risk=self._lambda_risk,
         )

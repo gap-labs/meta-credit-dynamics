@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any
 import numpy as np
+
+from ..interfaces import WorldAction, WorldStepResult, make_world_step_result
 
 
 @dataclass
@@ -27,7 +28,7 @@ class RegimeSwitchBanditWorld:
         # Initial regime: Bernoulli(0.5)
         self._regime = "A" if self._rng.random() < 0.5 else "B"
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.regime_sequence is not None:
             regime = self.regime_sequence[int(t)]
         else:
@@ -58,7 +59,7 @@ class RegimeSwitchBanditWorld:
         c_regime = 0.0 if regime == "A" else float(self.c_high)
         c_shock = float(self.c_spike) if shock else 0.0
         c = c_regime + c_shock
-        return {"r": r, "c": c}
+        return make_world_step_result(r_vec=r, c_total=c, action=action)
 
 
 @dataclass
@@ -75,7 +76,7 @@ class RuinRegimeBanditWorld:
         self._rng = np.random.default_rng(int(self.seed))
         self._regime = "A" if self._rng.random() < 0.5 else "B"
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.regime_sequence is not None:
             regime = self.regime_sequence[int(t)]
         else:
@@ -93,7 +94,7 @@ class RuinRegimeBanditWorld:
         else:
             noise = self._rng.normal(0.0, float(self.sigma), size=mean.shape)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 @dataclass
@@ -106,14 +107,14 @@ class MarginalMatchedControlWorld:
     def __post_init__(self) -> None:
         self._rng = np.random.default_rng(int(self.seed))
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         _ = t
         high_idx = 0 if self._rng.random() < 0.5 else 3
         mean = np.zeros(5, dtype=float)
         mean[high_idx] = 0.02
         noise = self._rng.normal(0.0, float(self.sigma), size=mean.shape)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 @dataclass
@@ -129,7 +130,7 @@ class SubsetRegimeBanditWorld:
         self._rng = np.random.default_rng(int(self.seed))
         self._regime = "A" if self._rng.random() < 0.5 else "B"
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.regime_sequence is not None:
             regime = self.regime_sequence[int(t)]
         else:
@@ -144,7 +145,7 @@ class SubsetRegimeBanditWorld:
 
         noise = self._rng.normal(0.0, float(self.sigma), size=mean.shape)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 @dataclass
@@ -161,7 +162,7 @@ class VolatilityRegimeBanditWorld:
         self._rng = np.random.default_rng(int(self.seed))
         self._regime = "A" if self._rng.random() < 0.5 else "B"
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.regime_sequence is not None:
             regime = self.regime_sequence[int(t)]
         else:
@@ -178,7 +179,7 @@ class VolatilityRegimeBanditWorld:
 
         noise = self._rng.normal(0.0, sigma, size=mean.shape)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 @dataclass
@@ -225,7 +226,7 @@ class NonStationaryVolatilityBanditWorld:
         sigma_vec[active_idx] = sigma_active
         return sigma_vec
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.regime_sequence is not None:
             regime = self.regime_sequence[int(t)]
         else:
@@ -241,7 +242,7 @@ class NonStationaryVolatilityBanditWorld:
         sigma_vec = self._sigma_vec(int(t), regime)
         noise = self._rng.normal(0.0, sigma_vec, size=mean.shape)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 @dataclass
@@ -275,7 +276,7 @@ class AdversarialPhaseShiftBanditWorld:
         sigma_vec[opposing_idx] = float(self.sigma_opposing_low)
         return sigma_vec
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.regime_sequence is not None:
             regime = self.regime_sequence[int(t)]
         else:
@@ -291,7 +292,7 @@ class AdversarialPhaseShiftBanditWorld:
         sigma_vec = self._sigma_vec(int(t), regime)
         noise = self._rng.normal(0.0, sigma_vec, size=mean.shape)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 @dataclass
@@ -313,7 +314,7 @@ class ShuffledRegimeBanditWorld:
         self._rng = np.random.default_rng(self._shuffle_seed)
         self._perm = self._rng.permutation(len(self.regime_sequence))
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         if self.noise_sequence is None:
             raise ValueError("noise_sequence is required for ShuffledRegimeBanditWorld")
         idx = int(self._perm[int(t)])
@@ -326,7 +327,7 @@ class ShuffledRegimeBanditWorld:
 
         noise = np.asarray(self.noise_sequence[int(t)], dtype=float)
         r = mean + noise
-        return {"r": r, "c": 0.0}
+        return make_world_step_result(r_vec=r, c_total=0.0, action=action)
 
 
 def _generate_regime_sequence(*, p: float, seed: int, length: int) -> list[str]:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any
 import numpy as np
+
+from ..interfaces import WorldAction, WorldStepResult, make_world_step_result
 
 
 @dataclass
@@ -17,6 +18,6 @@ class DeterministicClusterWorld:
         else:
             self.r_vec = np.asarray(self.r_vec, dtype=float)
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         _ = t
-        return {"r": self.r_vec.copy(), "c": 0.0}
+        return make_world_step_result(r_vec=self.r_vec.copy(), c_total=0.0, action=action)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, Any
 import numpy as np
+
+from ..interfaces import WorldAction, WorldStepResult, make_world_step_result
 
 
 class DeterministicScriptWorld:
@@ -11,6 +12,6 @@ class DeterministicScriptWorld:
         self._r = np.asarray(r if r is not None else [0.01, 0.0, -0.01], dtype=float)
         self._c = float(c)
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         _ = t  # unused; world is time-invariant
-        return {"r": self._r, "c": self._c}
+        return make_world_step_result(r_vec=self._r, c_total=self._c, action=action)

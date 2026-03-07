@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 import numpy as np
 
+from .phase_i_events import psi, update_mu_from_events, update_rho_from_events
 from .settlement import extract_due_obligations_at_tau, settle_due_claims_at_tau
 
 
@@ -35,6 +36,10 @@ def _default_due_extractor(state: Any, input_events: Mapping[str, Any], tau: int
 def _default_returns_booker(state: Any, due_returns: Mapping[str, Any], tau: int, input_events: Mapping[str, Any]):
     liquidity_before = float(state.wealth)
     total_returns = float(due_returns.get("total", 0.0))
+    # Phase-I design invariant:
+    # returns are booked independent of selector weights.
+    # Policy affects only internal attribution/state.
+    # Closed-loop coupling is introduced in Phase-II.
     state.wealth = liquidity_before + total_returns
     state._last_r = total_returns
     state._last_c = float(input_events.get("c_total", 0.0))
@@ -71,7 +76,7 @@ def _default_offer_publisher(state: Any, due_returns: Mapping[str, Any], input_e
     _, _, pi_total, pi_vec = state.compute_pi(r_vec, c_total)
     state.stats.update(pi_total)
 
-    adv = pi_vec - state.stats.mu
+    adv = state.compute_advantage(pi_vec)
     state.w = state.reweight_fn(state.w, adv)
 
     state._enforce_invariants()
@@ -119,6 +124,18 @@ def step_at_tau(
 
     settlement_result = settlement_processor(state, due_obligations, tau)
     _call_hook(hooks, "on_settlement_completed", settlement_result)
+
+    phase_i_events = psi(
+        state=state,
+        tau=int(tau),
+        input_events=input_events,
+        due_returns=due_returns,
+        due_obligations=due_obligations,
+        settlement_result=settlement_result,
+    )
+    update_mu_from_events(state, phase_i_events)
+    update_rho_from_events(state, phase_i_events)
+    state._last_phase_i_events = phase_i_events
 
     wealth_value = float(wealth_computer(state, settlement_result, tau))
     _call_hook(hooks, "on_wealth_computed", wealth_value)

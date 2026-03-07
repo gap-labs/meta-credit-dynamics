@@ -13,6 +13,8 @@ from .inhabitants import InhabitantsBook
 from .kernel_semantics import step_at_tau
 from .lifecycle_cuda import compute_lifecycle_cuda
 from .ledger import ClaimLedger
+from .phase_i_state import DEFAULT_LAMBDA_RISK, validate_lambda_risk
+from .selector_policy import DEFAULT_SELECTOR_POLICY, validate_selector_policy
 from .world_burndown import BurndownPool
 
 
@@ -64,7 +66,9 @@ class PopulationManager:
             c_total = float(event.get("c_total", 0.0))
             freeze = bool(event.get("freeze", False))
 
-            if selector.w is None or len(selector.w) != len(r_vec):
+            if hasattr(selector, "ensure_channel_state"):
+                selector.ensure_channel_state(len(r_vec))
+            elif selector.w is None or len(selector.w) != len(r_vec):
                 selector.w = np.ones(len(r_vec)) / max(1, len(r_vec))
                 selector.K = len(r_vec)
 
@@ -203,6 +207,8 @@ class PopulationManager:
             CapitalSelectorBuilder()
             .with_K(int(getattr(template, "K", 0)))
             .with_kind(str(getattr(template, "kind", "entrepreneur")))
+            .with_selector_policy(str(getattr(template, "selector_policy", DEFAULT_SELECTOR_POLICY)))
+            .with_lambda_risk(float(getattr(template, "lambda_risk", DEFAULT_LAMBDA_RISK)))
             .with_initial_wealth(float(liquidity))
             .with_rebirth_threshold(float(getattr(template, "rebirth_threshold", 0.0)))
         )
@@ -227,6 +233,9 @@ class PopulationManager:
         selector.dead = bool(getattr(selector, "dead", False))
         selector.tau_dead = getattr(selector, "tau_dead", None)
         selector._fitness_integral = float(getattr(selector, "_fitness_integral", 0.0))
+        selector.selector_policy = validate_selector_policy(str(getattr(selector, "selector_policy", DEFAULT_SELECTOR_POLICY)))
+        selector.policy = selector.selector_policy
+        selector.lambda_risk = validate_lambda_risk(float(getattr(selector, "lambda_risk", DEFAULT_LAMBDA_RISK)))
         if not hasattr(selector, "claim_ledger"):
             selector.claim_ledger = ClaimLedger(max_claims_per_process=self.rebirth_config.max_claims_per_process)
         if not hasattr(selector, "offers"):

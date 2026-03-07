@@ -1,0 +1,269 @@
+{
+  "config": {
+    "seed_count": 100,
+    "steps": 400,
+    "selectors": [
+      "random",
+      "myopic",
+      "term_aware",
+      "term_risk"
+    ],
+    "worlds": [
+      "baseline_world",
+      "governance_world",
+      "stress_world"
+    ],
+    "bootstrap_samples": 5000,
+    "bootstrap_seed": 2025,
+    "lambda_risk": 0.5
+  },
+  "aggregate_by_world_selector": {
+    "baseline_world": {
+      "random": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.014035222506650555,
+        "terminal_wealth_std": 0.01045326186195119,
+        "time_to_death_mean": 5.99,
+        "rollover_failure_frequency_mean": 0.10463560459148694,
+        "transaction_cost_total_mean": 0.017199999999999997,
+        "dead_rate": 1.0
+      },
+      "myopic": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.014035222506650555,
+        "terminal_wealth_std": 0.01045326186195119,
+        "time_to_death_mean": 5.99,
+        "rollover_failure_frequency_mean": 0.10463560459148694,
+        "transaction_cost_total_mean": 0.017199999999999997,
+        "dead_rate": 1.0
+      },
+      "term_aware": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.014035222506650555,
+        "terminal_wealth_std": 0.01045326186195119,
+        "time_to_death_mean": 5.99,
+        "rollover_failure_frequency_mean": 0.10463560459148694,
+        "transaction_cost_total_mean": 0.017199999999999997,
+        "dead_rate": 1.0
+      },
+      "term_risk": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.014035222506650555,
+        "terminal_wealth_std": 0.01045326186195119,
+        "time_to_death_mean": 5.99,
+        "rollover_failure_frequency_mean": 0.10463560459148694,
+        "transaction_cost_total_mean": 0.017199999999999997,
+        "dead_rate": 1.0
+      }
+    },
+    "governance_world": {
+      "random": {
+        "run_count": 100,
+        "terminal_wealth_mean": 7284.595913049739,
+        "terminal_wealth_std": 7607.547613906017,
+        "time_to_death_mean": 193.27,
+        "rollover_failure_frequency_mean": 0.14066666666666666,
+        "transaction_cost_total_mean": 22.300329627895493,
+        "dead_rate": 0.52
+      },
+      "myopic": {
+        "run_count": 100,
+        "terminal_wealth_mean": 7284.595913049739,
+        "terminal_wealth_std": 7607.547613906017,
+        "time_to_death_mean": 193.27,
+        "rollover_failure_frequency_mean": 0.14066666666666666,
+        "transaction_cost_total_mean": 22.300329627895493,
+        "dead_rate": 0.52
+      },
+      "term_aware": {
+        "run_count": 100,
+        "terminal_wealth_mean": 7284.595913049739,
+        "terminal_wealth_std": 7607.547613906017,
+        "time_to_death_mean": 193.27,
+        "rollover_failure_frequency_mean": 0.14066666666666666,
+        "transaction_cost_total_mean": 22.300329627895493,
+        "dead_rate": 0.52
+      },
+      "term_risk": {
+        "run_count": 100,
+        "terminal_wealth_mean": 7284.595913049739,
+        "terminal_wealth_std": 7607.547613906017,
+        "time_to_death_mean": 193.27,
+        "rollover_failure_frequency_mean": 0.14066666666666666,
+        "transaction_cost_total_mean": 22.300329627895493,
+        "dead_rate": 0.52
+      }
+    },
+    "stress_world": {
+      "random": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.08403494509821488,
+        "terminal_wealth_std": 0.05341689973191584,
+        "time_to_death_mean": 2.88,
+        "rollover_failure_frequency_mean": 0.2209523809523809,
+        "transaction_cost_total_mean": 0.114,
+        "dead_rate": 1.0
+      },
+      "myopic": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.08403494509821488,
+        "terminal_wealth_std": 0.05341689973191584,
+        "time_to_death_mean": 2.88,
+        "rollover_failure_frequency_mean": 0.2209523809523809,
+        "transaction_cost_total_mean": 0.114,
+        "dead_rate": 1.0
+      },
+      "term_aware": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.08403494509821488,
+        "terminal_wealth_std": 0.05341689973191584,
+        "time_to_death_mean": 2.88,
+        "rollover_failure_frequency_mean": 0.2209523809523809,
+        "transaction_cost_total_mean": 0.114,
+        "dead_rate": 1.0
+      },
+      "term_risk": {
+        "run_count": 100,
+        "terminal_wealth_mean": -0.08403494509821488,
+        "terminal_wealth_std": 0.05341689973191584,
+        "time_to_death_mean": 2.88,
+        "rollover_failure_frequency_mean": 0.2209523809523809,
+        "transaction_cost_total_mean": 0.114,
+        "dead_rate": 1.0
+      }
+    }
+  },
+  "invariance": {
+    "expected_phase_i": "~0",
+    "max_policy_deviation": 0.0,
+    "policy_outcome_variance": 0.0,
+    "by_world_metric": [
+      {
+        "world": "baseline_world",
+        "metric": "terminal_wealth",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "baseline_world",
+        "metric": "time_to_death",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "baseline_world",
+        "metric": "rollover_failure_frequency",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "governance_world",
+        "metric": "terminal_wealth",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "governance_world",
+        "metric": "time_to_death",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "governance_world",
+        "metric": "rollover_failure_frequency",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "stress_world",
+        "metric": "terminal_wealth",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "stress_world",
+        "metric": "time_to_death",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      },
+      {
+        "world": "stress_world",
+        "metric": "rollover_failure_frequency",
+        "paired_seed_count": 100,
+        "selector_count": 4,
+        "selectors": [
+          "random",
+          "myopic",
+          "term_aware",
+          "term_risk"
+        ],
+        "max_policy_deviation": 0.0,
+        "policy_outcome_variance": 0.0
+      }
+    ]
+  }
+}

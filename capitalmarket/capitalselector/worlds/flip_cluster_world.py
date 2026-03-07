@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any
 import numpy as np
+
+from ..interfaces import WorldAction, WorldStepResult, make_world_step_result
 
 
 @dataclass
@@ -18,10 +19,10 @@ class FlipClusterWorld:
         self._r_post = np.array([-0.03, -0.03, 0.0, 0.05, 0.05], dtype=float)
         self._r_shock = np.array([-2.0, -2.0, 0.0, -2.0, -2.0], dtype=float)
 
-    def step(self, t: int) -> Dict[str, Any]:
+    def step(self, t: int, action: WorldAction | None = None) -> WorldStepResult:
         t = int(t)
         if self.shock_start <= t < self.shock_end:
             r_vec = self._r_shock
         else:
             r_vec = self._r_pre if t < int(self.flip_time) else self._r_post
-        return {"r": r_vec.copy(), "c": 0.0}
+        return make_world_step_result(r_vec=r_vec.copy(), c_total=0.0, action=action)

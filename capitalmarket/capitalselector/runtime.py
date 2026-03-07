@@ -12,7 +12,9 @@ from .builder import CapitalSelectorBuilder
 from .cpu_impl import CpuCore
 from .cuda_impl import CudaCore
 from .determinism import enable_determinism
+from .phase_i_state import DEFAULT_LAMBDA_RISK
 from .population_manager import PopulationManager, RebirthConfig
+from .selector_policy import DEFAULT_SELECTOR_POLICY, SelectorPolicy
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class RuntimeConfig:
     rebirth_base_liquidity: float = 0.0
     rebirth_eta: float = 0.0
     rebirth_kappa: float = 1.0
+    selector_policy: SelectorPolicy = DEFAULT_SELECTOR_POLICY
+    lambda_risk: float = DEFAULT_LAMBDA_RISK
 
 
 def _resolve_backend(cfg: RuntimeConfig) -> tuple[str, str]:
@@ -82,7 +86,13 @@ def run_population(
 ) -> Dict[str, Any]:
     os.environ["CAPM_MODE"] = str(capm_mode)
 
-    selector = CapitalSelectorBuilder().with_K(0).build()
+    selector = (
+        CapitalSelectorBuilder()
+        .with_K(0)
+        .with_selector_policy(config.selector_policy)
+        .with_lambda_risk(config.lambda_risk)
+        .build()
+    )
     manager = PopulationManager.single(
         selector,
         process_id=0,
@@ -173,14 +183,22 @@ def run(
     core = CudaCore() if effective_backend == "cuda" else CpuCore()
 
     # initialize selector from Profile A defaults
-    selector = CapitalSelectorBuilder().with_K(0).build()
+    selector = (
+        CapitalSelectorBuilder()
+        .with_K(0)
+        .with_selector_policy(cfg.selector_policy)
+        .with_lambda_risk(cfg.lambda_risk)
+        .build()
+    )
 
     trace = []
     history = []
     for t in range(int(steps)):
         out = world.step(t)
         r_vec, c_total = validate_world_output(out)
-        if selector.w is None or len(selector.w) != len(r_vec):
+        if hasattr(selector, "ensure_channel_state"):
+            selector.ensure_channel_state(len(r_vec))
+        elif selector.w is None or len(selector.w) != len(r_vec):
             selector.w = np.ones(len(r_vec)) / max(1, len(r_vec))
             selector.K = len(r_vec)
         core.step(selector, r_vec, c_total, freeze=cfg.freeze)

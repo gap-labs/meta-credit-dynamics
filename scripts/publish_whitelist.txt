@@ -38,6 +38,19 @@ tests/tests_phase_d.py
 tests/tests_phase_e.py
 tests/tests_phase_e_must_haves.py
 
+# Phase-II reproducibility tests
+tests/test_world_action_validation.py
+tests/test_world_action_coupling.py
+tests/test_due_curve_update.py
+tests/test_liquidity_mismatch_detection.py
+tests/test_strategic_credit_behavior.py
+tests/test_phase_ii_event_mapping.py
+tests/test_event_summary_mapping.py
+tests/test_phase_ii_determinism.py
+tests/test_phase_ii_cpu_cuda_parity.py
+tests/test_phase_ii_evaluation_protocol.py
+tests/test_issue10_phase_ii_additional_gaps.py
+
 # Curated public documentation (project nachvollziehbar, ohne internal-Baum)
 # v1 baseline docs
 docs/v1/README.md
@@ -52,6 +65,12 @@ docs/v2/README.md
 docs/v2/architecture.md
 docs/v2/math-v2.md
 docs/v2/release_notes_v0.7.20.md
+
+# v3 docs required to nachvollziehen closed-loop Phase-II implementation
+docs/v3/architecture_phase_ii.md
+docs/v3/impl_spec_phase_ii.md
+docs/v3/math_selector_v3.md
+docs/v3/phase_ii_prompt_seq.md
 
 # Deliberately excluded (example):
 # - docs/v1/internal/**
