@@ -1,6 +1,6 @@
 Minimal Research License
 
-Copyright (c) 2026 Andreas Bille
+Copyright (c) 2026 GAP Labs GmbH
 
 Permission is hereby granted to any person obtaining a copy of this repository
 to view, clone, and reproduce the contents for the sole purposes of
@@ -21,3 +21,4 @@ This license does not grant any patent rights.
 THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 All rights not expressly granted are reserved.
+
