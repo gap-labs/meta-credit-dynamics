@@ -40,19 +40,23 @@ class GovernanceWorld:
         _ = t
         alpha = float(self.reg["alpha"])
         manipulability = float(self.reg["manipulability"])
+        reweight_speed = float(self.reg.get("reweight_speed", 0.0))
         punishment = float(self.reg["punishment"])
         volatility = float(self.reg["volatility"])
 
         incident = bool(self.rng.random() < (0.02 + 0.10 * punishment))
         incident_cost = float(self.rng.normal(0.0, 0.8)) if incident else 0.0
 
-        dV = float(self.rng.normal(0.25, 0.20) + incident_cost)
         dM = float(self.rng.normal(0.10, 0.15) * manipulability)
+        # Metric-gaming effort can increase dashboard KPI while eroding true value.
+        gaming_drag = float(reweight_speed * manipulability * max(dM, 0.0))
+        dV = float(self.rng.normal(0.25, 0.20) - gaming_drag + incident_cost)
 
         self.V += dV
         self.M += dM
 
-        k_total = alpha * self.V + (1.0 - alpha) * self.M + float(self.rng.normal(0.0, 0.2))
+        # KPI mixes true value with manipulation pressure; low alpha amplifies KPI drift.
+        k_total = self.V + (1.0 - alpha) * manipulability * self.M + float(self.rng.normal(0.0, 0.2))
 
         self.V_hist.append(float(self.V))
         self.M_hist.append(float(self.M))

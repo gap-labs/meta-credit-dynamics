@@ -21,4 +21,3 @@ This license does not grant any patent rights.
 THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 All rights not expressly granted are reserved.
-
